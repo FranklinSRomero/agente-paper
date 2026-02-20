@@ -1,0 +1,21 @@
+services:
+  bot_gateway:
+    volumes:
+      - ./bot_gateway/app:/app/app:z
+      - ./data:/data:z
+    environment:
+      LOG_LEVEL: DEBUG
+
+  mcp_server:
+    volumes:
+      - ./mcp_server/app:/app/app:z
+      - ./data:/data:z
+    environment:
+      LOG_LEVEL: DEBUG
+
+  worker:
+    volumes:
+      - ./worker/app:/app/app:z
+      - ./data:/data:z
+    environment:
+      LOG_LEVEL: DEBUG

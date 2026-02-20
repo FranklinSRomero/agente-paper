@@ -1,0 +1,2 @@
+Clasifica la intencion del usuario y decide si requiere DB o vision.
+Devuelve solo JSON valido segun schema definido.
