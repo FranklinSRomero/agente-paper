@@ -149,7 +149,12 @@ class TransactionalCore:
         if barcode:
             search["barcode"] = barcode
         elif sku_candidates:
-            search["sku"] = sku_candidates[0]
+            first_sku = str(sku_candidates[0]).strip()
+            digits = re.sub(r"\D", "", first_sku)
+            if 8 <= len(digits) <= 14:
+                search["barcode"] = digits
+            else:
+                search["sku"] = first_sku
         elif ocr_text:
             search["texto"] = ocr_text[:80]
 
