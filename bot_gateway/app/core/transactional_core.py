@@ -86,6 +86,12 @@ class TransactionalCore:
             await self._maybe_update_summary(user_id, text, report_text)
             report_png = self._build_sales_chart_png(tool_payload, text, decision.intent)
             return report_text, report_png
+        product_detail = self._format_single_product_detail(tool_payload, decision.intent)
+        if product_detail:
+            self._store_memory_from_text(user_id, chat_id, chat_type, text)
+            self._store_conversation_turn(user_id, chat_id, chat_type, text, product_detail)
+            await self._maybe_update_summary(user_id, text, product_detail)
+            return product_detail, None
         option_list = self._format_product_options(tool_payload, decision.intent)
         if option_list:
             self._store_memory_from_text(user_id, chat_id, chat_type, text)
@@ -324,17 +330,91 @@ class TransactionalCore:
             sku = str(item.get("sku") or item.get("reference") or item.get("code") or "-")
             name = str(item.get("product_name") or item.get("name") or "-")
             category = str(item.get("category_name") or item.get("categoria") or item.get("category") or "-")
-            price = item.get("price")
-            if price is None:
-                price = item.get("pricesell")
+            price_sell = item.get("pricesell")
+            if price_sell is None:
+                price_sell = item.get("price")
+            price_buy = item.get("pricebuy")
             stock = item.get("stock")
             if stock is None:
                 stock = item.get("stockunits")
             barcode = item.get("barcode") or item.get("code") or "-"
             lines.append(f"{idx}. {name}")
             lines.append(f"   Ref: {sku} | Codigo: {barcode}")
-            lines.append(f"   Categoria: {category} | Precio: {fmt_price(price)} | Stock: {fmt_stock(stock)}")
+            lines.append(
+                "   Categoria: {cat} | Compra: {buy} | Venta: {sell} | Stock: {stock}".format(
+                    cat=category,
+                    buy=fmt_price(price_buy),
+                    sell=fmt_price(price_sell),
+                    stock=fmt_stock(stock),
+                )
+            )
         lines.append("Responde con el SKU/Referencia o Codigo exacto para continuar.")
+        return "\n".join(lines)
+
+    def _format_single_product_detail(self, payload: dict[str, Any], intent: str) -> str | None:
+        if intent not in ("buscar_producto", "detalle_producto"):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if int(payload.get("count", 0)) != 1:
+            return None
+        items = payload.get("items") or []
+        if not isinstance(items, list) or not items:
+            return None
+
+        item = items[0]
+
+        def fmt_price(value: Any) -> str:
+            if value is None:
+                return "-"
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if amount.is_integer():
+                return f"${int(amount):,}"
+            return f"${amount:,.2f}"
+
+        def fmt_stock(value: Any) -> str:
+            if value is None:
+                return "-"
+            try:
+                qty = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if qty.is_integer():
+                return str(int(qty))
+            return f"{qty:.2f}"
+
+        name = str(item.get("product_name") or item.get("name") or "-")
+        ref = str(item.get("sku") or item.get("reference") or item.get("code") or "-")
+        code = str(item.get("barcode") or item.get("code") or "-")
+        category = str(item.get("category_name") or item.get("categoria") or item.get("category") or "-")
+        price_buy = item.get("pricebuy")
+        price_sell = item.get("pricesell")
+        if price_sell is None:
+            price_sell = item.get("price")
+        stock = item.get("stock")
+        if stock is None:
+            stock = item.get("stockunits")
+
+        margin_txt = "-"
+        if price_buy is not None and price_sell is not None:
+            try:
+                margin = float(price_sell) - float(price_buy)
+                margin_txt = fmt_price(margin)
+            except (TypeError, ValueError):
+                margin_txt = "-"
+
+        lines = [
+            f"Producto: {name}",
+            f"Ref: {ref} | Codigo: {code}",
+            f"Categoria: {category}",
+            f"Precio compra/proveedor: {fmt_price(price_buy)}",
+            f"Precio venta publico: {fmt_price(price_sell)}",
+            f"Margen estimado: {margin_txt}",
+            f"Stock: {fmt_stock(stock)}",
+        ]
         return "\n".join(lines)
 
     def _heuristic_route(self, text: str) -> RouterDecision | None:
