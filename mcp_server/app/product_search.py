@@ -130,21 +130,36 @@ class ProductSearch:
         name_col = mapping["name_col"] or sku_col
         category_col = mapping["category_col"] or name_col
         price_col = mapping["price_col"]
+        table_l = str(table).lower()
+        base_alias = "p"
+        from_clause = f"FROM `{table}` {base_alias}"
+        select_clause = f"SELECT {base_alias}.*"
+
+        if table_l == "products":
+            # For legacy POS schema, expose human-readable category names.
+            from_clause += f" LEFT JOIN `categories` c ON c.id = {base_alias}.`{category_col}`"
+            select_clause += ", c.name AS category_name"
+
         sql = (
-            f"SELECT * FROM `{table}` "
-            f"WHERE (:sku IS NULL OR `{sku_col}` = :sku) "
-            f"AND (:barcode IS NULL OR `{barcode_col}` = :barcode) "
-            f"AND (:categoria IS NULL OR `{category_col}` = :categoria) "
+            f"{select_clause} {from_clause} "
+            f"WHERE (:sku IS NULL OR {base_alias}.`{sku_col}` = :sku) "
+            f"AND (:barcode IS NULL OR {base_alias}.`{barcode_col}` = :barcode) "
+            f"AND (:categoria IS NULL OR {base_alias}.`{category_col}` = :categoria"
+        )
+        if table_l == "products":
+            sql += " OR c.name = :categoria"
+        sql += ") "
+        sql += (
             f"AND (:texto IS NULL OR ("
-            f"`{name_col}` LIKE CONCAT('%', :texto, '%') "
-            f"OR `{sku_col}` LIKE CONCAT('%', :texto, '%') "
-            f"OR `{barcode_col}` LIKE CONCAT('%', :texto, '%')"
+            f"{base_alias}.`{name_col}` LIKE CONCAT('%', :texto, '%') "
+            f"OR {base_alias}.`{sku_col}` LIKE CONCAT('%', :texto, '%') "
+            f"OR {base_alias}.`{barcode_col}` LIKE CONCAT('%', :texto, '%')"
             f")) "
         )
         if price_col:
             sql += (
-                f"AND (:price_min IS NULL OR `{price_col}` >= :price_min) "
-                f"AND (:price_max IS NULL OR `{price_col}` <= :price_max) "
+                f"AND (:price_min IS NULL OR {base_alias}.`{price_col}` >= :price_min) "
+                f"AND (:price_max IS NULL OR {base_alias}.`{price_col}` <= :price_max) "
             )
         sql += "LIMIT :limit"
         rows = self.db.query(

@@ -297,11 +297,33 @@ class TransactionalCore:
         if not items:
             return None
 
+        def fmt_price(value: Any) -> str:
+            if value is None:
+                return "-"
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if amount.is_integer():
+                return f"${int(amount):,}"
+            return f"${amount:,.2f}"
+
+        def fmt_stock(value: Any) -> str:
+            if value is None:
+                return "-"
+            try:
+                qty = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if qty.is_integer():
+                return str(int(qty))
+            return f"{qty:.2f}"
+
         lines = ["Encontre varias coincidencias. Elige una opcion:"]
         for idx, item in enumerate(items, start=1):
             sku = str(item.get("sku") or item.get("reference") or item.get("code") or "-")
             name = str(item.get("product_name") or item.get("name") or "-")
-            category = str(item.get("categoria") or item.get("category") or "-")
+            category = str(item.get("category_name") or item.get("categoria") or item.get("category") or "-")
             price = item.get("price")
             if price is None:
                 price = item.get("pricesell")
@@ -310,9 +332,8 @@ class TransactionalCore:
                 stock = item.get("stockunits")
             barcode = item.get("barcode") or item.get("code") or "-"
             lines.append(f"{idx}. {name}")
-            lines.append(
-                f"   SKU/Ref: {sku} | Codigo: {barcode} | Categoria: {category} | Precio: {price if price is not None else '-'} | Stock: {stock if stock is not None else '-'}"
-            )
+            lines.append(f"   Ref: {sku} | Codigo: {barcode}")
+            lines.append(f"   Categoria: {category} | Precio: {fmt_price(price)} | Stock: {fmt_stock(stock)}")
         lines.append("Responde con el SKU/Referencia o Codigo exacto para continuar.")
         return "\n".join(lines)
 
