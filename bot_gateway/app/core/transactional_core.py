@@ -73,7 +73,11 @@ class TransactionalCore:
             self._store_conversation_turn(user_id, chat_id, chat_type, text, decision.ask_clarification)
             return decision.ask_clarification, None
 
-        tool_payload = await self._maybe_query_tools(decision)
+        if decision.needs_db:
+            tool_payload = await self._maybe_query_tools(decision)
+        else:
+            forced = await self._try_forced_product_lookup(text)
+            tool_payload = forced if forced is not None else {"db": "not_required"}
         tool_error_msg = self._humanize_tool_error(tool_payload)
         if tool_error_msg:
             self._store_memory_from_text(user_id, chat_id, chat_type, text)
@@ -114,6 +118,32 @@ class TransactionalCore:
         self._store_conversation_turn(user_id, chat_id, chat_type, text, answer)
         await self._maybe_update_summary(user_id, text, answer)
         return answer, None
+
+    async def _try_forced_product_lookup(self, text: str) -> dict[str, Any] | None:
+        lowered = text.lower()
+        intent_markers = (
+            "sku",
+            "codigo",
+            "código",
+            "barcode",
+            "referencia",
+            "ref",
+            "precio",
+            "valor",
+            "cuanto",
+            "cuánto",
+            "stock",
+            "inventario",
+            "producto",
+        )
+        has_long_digits = bool(re.search(r"\d{6,14}", text))
+        if not (any(m in lowered for m in intent_markers) or has_long_digits):
+            return None
+
+        payload = await self._call_mcp_tool("search_products", {"texto": text[:80], "limit": 10})
+        if isinstance(payload, dict) and not payload.get("error") and int(payload.get("count", 0)) > 0:
+            return payload
+        return None
 
     async def process_photo(self, user_id: int, chat_id: int, chat_type: str, image_bytes: bytes, caption: str | None) -> str:
         if not self.vision_tool.enabled:
