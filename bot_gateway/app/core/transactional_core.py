@@ -206,6 +206,16 @@ class TransactionalCore:
             msg = "No se encontraron resultados para la imagen. ¿Puedes proporcionar el código de barras o SKU?"
             self._store_conversation_turn(user_id, chat_id, chat_type, caption or "[foto]", msg)
             return msg
+        product_detail = self._format_single_product_detail(tool_payload, "detalle_producto")
+        if product_detail:
+            self._store_conversation_turn(user_id, chat_id, chat_type, caption or "[foto]", product_detail)
+            await self._maybe_update_summary(user_id, caption or "buscar por imagen", product_detail)
+            return product_detail
+        option_list = self._format_product_options(tool_payload, "buscar_producto")
+        if option_list:
+            self._store_conversation_turn(user_id, chat_id, chat_type, caption or "[foto]", option_list)
+            await self._maybe_update_summary(user_id, caption or "buscar por imagen", option_list)
+            return option_list
         safe_payload = sanitize_for_llm(tool_payload)
         text = caption or "Buscar producto por imagen"
         answer = await self.gemini.arespond(
@@ -294,8 +304,6 @@ class TransactionalCore:
         return "No pude consultar la base de datos en este momento."
 
     def _format_product_options(self, payload: dict[str, Any], intent: str) -> str | None:
-        if intent not in ("buscar_producto", "detalle_producto"):
-            return None
         if not isinstance(payload, dict):
             return None
         count = int(payload.get("count", 0))
@@ -357,8 +365,6 @@ class TransactionalCore:
         return "\n".join(lines)
 
     def _format_single_product_detail(self, payload: dict[str, Any], intent: str) -> str | None:
-        if intent not in ("buscar_producto", "detalle_producto"):
-            return None
         if not isinstance(payload, dict):
             return None
         if int(payload.get("count", 0)) != 1:
@@ -415,7 +421,7 @@ class TransactionalCore:
             f"Producto: {name}",
             f"Ref: {ref} | Codigo: {code}",
             f"Categoria: {category}",
-            f"Precio compra/proveedor: {fmt_price(price_buy)}",
+            f"Precio compra distribuidor: {fmt_price(price_buy)}",
             f"Precio venta publico: {fmt_price(price_sell)}",
             f"Margen estimado: {margin_txt}",
             f"Stock: {fmt_stock(stock)}",
