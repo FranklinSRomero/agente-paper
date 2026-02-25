@@ -89,6 +89,10 @@ make import-dump
   - `MYSQL_PASSWORD=<readonly_password>`
   - `MYSQL_DATABASE=<db>`
 
+Cuando cargues un dump con catalogo real (por ejemplo tabla `products`), fija:
+- `MCP_PRODUCT_TABLE=products`
+para que el buscador no use la tabla semilla `products_catalog`.
+
 ## Comandos Telegram
 - `/start` estado basico.
 - `/link <SHARE_TOKEN>` autoriza user_id via token.

@@ -1,3 +1,5 @@
+import os
+
 from .mysql_client import MySQLClient
 
 
@@ -51,6 +53,60 @@ class ProductSearch:
             if not bucket["stock_col"] and any(k in cl for k in ["stock", "qty", "quantity", "invent"]):
                 bucket["stock_col"] = c
                 bucket["score"] += 1
+        # Prefer explicit table when integrating existing DB dumps.
+        preferred_table = os.getenv("MCP_PRODUCT_TABLE", "").strip()
+        if preferred_table and preferred_table in grouped:
+            mapping = grouped[preferred_table]
+            columns_sql = (
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = :table "
+                "LIMIT 200"
+            )
+            col_rows = self.db.query(columns_sql, {"table": preferred_table})
+            cols = {str(next(iter(r.values()))).lower() for r in col_rows if r}
+
+            def pick(*candidates: str) -> str | None:
+                for cand in candidates:
+                    if cand.lower() in cols:
+                        return cand
+                return None
+
+            mapping["sku_col"] = mapping["sku_col"] or pick("sku", "reference", "code", "id")
+            mapping["barcode_col"] = mapping["barcode_col"] or pick("barcode", "ean", "upc", "gtin", "code", "reference")
+            mapping["name_col"] = mapping["name_col"] or pick("product_name", "name", "nombre", "product")
+            mapping["category_col"] = mapping["category_col"] or pick("categoria", "category", "taxcat")
+            mapping["price_col"] = mapping["price_col"] or pick("pricesell", "price", "unit_price", "pricebuy")
+            mapping["stock_col"] = mapping["stock_col"] or pick("stock", "stockunits", "qty", "quantity", "invent")
+            return mapping
+
+        # Improve selection for common POS schemas where product codes are "reference"/"code".
+        for bucket in grouped.values():
+            table_l = str(bucket["table"]).lower()
+            if table_l == "products":
+                if not bucket["sku_col"]:
+                    bucket["sku_col"] = "reference"
+                    bucket["score"] += 2
+                if not bucket["barcode_col"]:
+                    bucket["barcode_col"] = "code"
+                    bucket["score"] += 2
+                if not bucket["name_col"]:
+                    bucket["name_col"] = "name"
+                    bucket["score"] += 1
+                if not bucket["category_col"]:
+                    bucket["category_col"] = "category"
+                    bucket["score"] += 1
+                if not bucket["price_col"]:
+                    bucket["price_col"] = "pricesell"
+                    bucket["score"] += 1
+                if not bucket["stock_col"]:
+                    bucket["stock_col"] = "stockunits"
+                    bucket["score"] += 1
+                # Bias to choose the real imported catalog over tiny demo tables.
+                bucket["score"] += 4
+            if table_l == "products_catalog":
+                # Keep available but with lower priority when richer schemas exist.
+                bucket["score"] -= 2
+
         ranked = sorted(grouped.values(), key=lambda x: x["score"], reverse=True)
         if not ranked or ranked[0]["score"] < 2:
             raise ValueError("No se encontro tabla candidata de productos por introspeccion")

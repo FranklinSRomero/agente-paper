@@ -27,8 +27,12 @@ class SchemaIntrospector:
         )
         grouped: dict[str, dict] = {}
         for row in columns:
-            t = row["table_name"]
-            c = row["column_name"].lower()
+            row_norm = {str(k).lower(): v for k, v in row.items()}
+            t = row_norm.get("table_name")
+            col_name = row_norm.get("column_name")
+            if not t or not col_name:
+                continue
+            c = str(col_name).lower()
             bucket = grouped.setdefault(
                 t,
                 {
@@ -43,22 +47,22 @@ class SchemaIntrospector:
                 },
             )
             if not bucket["sku_col"] and "sku" in c:
-                bucket["sku_col"] = row["column_name"]
+                bucket["sku_col"] = col_name
                 bucket["score"] += 2
             if not bucket["barcode_col"] and any(k in c for k in ["barcode", "ean", "upc", "gtin"]):
-                bucket["barcode_col"] = row["column_name"]
+                bucket["barcode_col"] = col_name
                 bucket["score"] += 2
             if not bucket["name_col"] and any(k in c for k in ["name", "nombre", "product"]):
-                bucket["name_col"] = row["column_name"]
+                bucket["name_col"] = col_name
                 bucket["score"] += 1
             if not bucket["category_col"] and any(k in c for k in ["category", "categoria"]):
-                bucket["category_col"] = row["column_name"]
+                bucket["category_col"] = col_name
                 bucket["score"] += 1
             if not bucket["price_col"] and "price" in c:
-                bucket["price_col"] = row["column_name"]
+                bucket["price_col"] = col_name
                 bucket["score"] += 1
             if not bucket["stock_col"] and any(k in c for k in ["stock", "qty", "quantity", "invent"]):
-                bucket["stock_col"] = row["column_name"]
+                bucket["stock_col"] = col_name
                 bucket["score"] += 1
         ranked = sorted(grouped.values(), key=lambda x: x["score"], reverse=True)
         return {"candidates": columns, "ranked_tables": ranked}
