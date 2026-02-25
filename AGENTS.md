@@ -26,6 +26,8 @@ Operational instructions for future CLI/Codex agents working in this repository.
 2. `docker-compose ps`
 3. `curl -fsS http://localhost:8081/health`
 4. `curl -fsS http://localhost:7000/health`
+5. If loading a local MySQL backup dump:
+   - `make import-dump DUMP_FILE=data/<archivo>.sql`
 
 ## Environment Constraint Noted
 - Previous note (2026-02-20): `make up-mysql` failed in a host context where the `docker` binary was missing.

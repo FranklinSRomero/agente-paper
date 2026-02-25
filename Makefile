@@ -1,4 +1,4 @@
-.PHONY: up up-mysql down logs ps build smoke fmt
+.PHONY: up up-mysql down logs ps build smoke fmt import-dump
 
 COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 
@@ -22,3 +22,6 @@ build:
 
 smoke:
 	bash ops/scripts/smoke_test.sh
+
+import-dump:
+	bash ops/scripts/import_mysql_dump.sh "$(DUMP_FILE)"

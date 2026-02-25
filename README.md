@@ -69,6 +69,17 @@ Nota de entorno: si ejecutas desde el host sin binario `docker` (por ejemplo, fu
 - Crea usuario readonly con `ops/scripts/init_mysql_readonly.sql`.
 - Ajustar `.env` (`MYSQL_HOST=mysql`, etc.).
 
+#### Importar un mysqldump local
+1. Copia tu dump a `data/` (ej: `data/mi_backup.sql` o `data/mi_backup.sql.gz`).
+2. Importa automaticamente:
+```bash
+make import-dump DUMP_FILE=data/mi_backup.sql
+```
+Si hay un solo dump en `data/`, puedes omitir `DUMP_FILE`:
+```bash
+make import-dump
+```
+
 ### Opcion B: MySQL externo (host/LAN)
 - No usar profile mysql.
 - Configurar `.env`:
