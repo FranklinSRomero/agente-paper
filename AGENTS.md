@@ -24,6 +24,9 @@ Operational instructions for future CLI/Codex agents working in this repository.
    - `GET /webhooks/whatsapp` (Meta verify)
    - `POST /webhooks/whatsapp` (events)
 7. `cloudflared` is installed locally at `~/.local/bin/cloudflared` (version `2026.2.0`).
+8. WhatsApp Graph API default in this repo is `WHATSAPP_GRAPH_VERSION=v24.0`; if Meta deprecates it, update using official docs:
+   - https://developers.facebook.com/docs/graph-api/changelog/
+   - https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
 
 ## First Commands to Run
 1. `make up-mysql`
@@ -34,8 +37,9 @@ Operational instructions for future CLI/Codex agents working in this repository.
    - `~/.local/bin/cloudflared tunnel --url http://localhost:8081`
 
 ## Environment Constraint Noted
-- On current host, `make up-mysql` failed on `2026-02-20` because `docker` binary is missing.
-- If this repeats:
+- Previous note (2026-02-20): `make up-mysql` failed in a host context where the `docker` binary was missing.
+- In this environment, Docker is available via Distrobox, so run compose commands from the Distrobox shell.
+- If the missing-binary issue repeats outside Distrobox:
   1. install Docker/Compose first, or
   2. run services in host mode without compose.
 

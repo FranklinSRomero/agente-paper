@@ -59,7 +59,7 @@ make up-mysql
 make smoke
 ```
 
-Si no tienes Docker instalado (ejemplo: host Bazzite sin binario `docker`), `make up`/`make up-mysql` fallaran hasta instalar Docker/Compose.
+Nota de entorno: si ejecutas desde el host sin binario `docker` (por ejemplo, fuera de Distrobox), `make up`/`make up-mysql` fallaran hasta instalar Docker/Compose o entrar al entorno Distrobox donde Docker si esta disponible.
 
 ## Canales de entrada
 - Telegram (polling): habilitado por `BOT_ENABLE_TELEGRAM=true`.
@@ -70,7 +70,7 @@ Configura en `.env`:
 - `WHATSAPP_PHONE_NUMBER_ID`
 - `WHATSAPP_ACCESS_TOKEN`
 - `WHATSAPP_VERIFY_TOKEN`
-- opcionales: `WHATSAPP_GRAPH_VERSION`, `WHATSAPP_TYPING_BEST_EFFORT`
+- opcionales: `WHATSAPP_GRAPH_VERSION` (default recomendado: `v24.0`), `WHATSAPP_TYPING_BEST_EFFORT`
 
 Webhook endpoints:
 - Verificacion (Meta): `GET /webhooks/whatsapp`
@@ -79,6 +79,9 @@ Webhook endpoints:
 Notas:
 - El bot marca mensajes como leidos y hace best-effort de estado durante procesamiento largo.
 - Soporta texto, imagen y audio (transcripcion + respuesta).
+- Si Meta depreca la version configurada, ajusta `WHATSAPP_GRAPH_VERSION` segun la documentacion oficial:
+  - https://developers.facebook.com/docs/graph-api/changelog/
+  - https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
 - Para exponer webhook localmente se puede usar:
 ```bash
 ~/.local/bin/cloudflared tunnel --url http://localhost:8081

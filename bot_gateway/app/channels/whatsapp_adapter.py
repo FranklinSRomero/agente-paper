@@ -22,7 +22,8 @@ class WhatsAppCloudAdapter:
 
         self.enabled = os.getenv("BOT_ENABLE_WHATSAPP", "false").lower() == "true"
         self.graph_base = os.getenv("WHATSAPP_GRAPH_BASE_URL", "https://graph.facebook.com")
-        self.graph_version = os.getenv("WHATSAPP_GRAPH_VERSION", "v21.0")
+        # Keep this aligned with current stable Graph API for WhatsApp Cloud API.
+        self.graph_version = os.getenv("WHATSAPP_GRAPH_VERSION", "v24.0")
         self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
         self.access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
         self.verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
