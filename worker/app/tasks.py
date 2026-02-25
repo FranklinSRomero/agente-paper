@@ -7,7 +7,7 @@ import pytesseract
 from pyzbar.pyzbar import decode as zbar_decode
 
 
-GTIN_RE = re.compile(r"\b\d{8,14}\b")
+GTIN_RE = re.compile(r"(?<!\d)\d{8,14}(?!\d)")
 GTIN_FUZZY_RE = re.compile(r"(?:\d[\s\-]*){8,14}")
 SKU_RE = re.compile(r"\b[A-Z0-9\-_]{4,24}\b", re.IGNORECASE)
 BARCODE_TYPES = {
@@ -94,6 +94,8 @@ def _ocr(gray_img) -> str:
     configs = [
         "--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",
         "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",
+        "--psm 7 -c tessedit_char_whitelist=0123456789",
+        "--psm 8 -c tessedit_char_whitelist=0123456789",
         "--psm 11",
     ]
     parts = []
@@ -101,10 +103,12 @@ def _ocr(gray_img) -> str:
         roi = cv2.resize(roi, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
         blur = cv2.GaussianBlur(roi, (3, 3), 0)
         _, th = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        for cfg in configs:
-            txt = pytesseract.image_to_string(th, config=cfg)
-            if txt:
-                parts.append(" ".join(txt.split()))
+        variants = [th, cv2.bitwise_not(th)]
+        for cand in variants:
+            for cfg in configs:
+                txt = pytesseract.image_to_string(cand, config=cfg)
+                if txt:
+                    parts.append(" ".join(txt.split()))
     return " ".join(parts).strip()
 
 
@@ -119,6 +123,10 @@ def _normalize(barcode: str | None, qr_text: str | None, ocr_text: str | None):
     gtins = GTIN_RE.findall(blob)
     if gtins:
         return gtins[0], []
+    compact_blob = re.sub(r"[^0-9A-Z\-_]", "", blob)
+    compact_gtins = GTIN_RE.findall(compact_blob)
+    if compact_gtins:
+        return compact_gtins[0], []
     fuzzy = GTIN_FUZZY_RE.findall(blob)
     for candidate in fuzzy:
         digits = re.sub(r"\D", "", candidate)
