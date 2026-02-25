@@ -299,14 +299,21 @@ class TransactionalCore:
 
         lines = ["Encontre varias coincidencias. Elige una opcion:"]
         for idx, item in enumerate(items, start=1):
-            sku = str(item.get("sku", "-"))
+            sku = str(item.get("sku") or item.get("reference") or item.get("code") or "-")
             name = str(item.get("product_name") or item.get("name") or "-")
-            category = str(item.get("categoria", "-"))
-            price = item.get("price", "-")
-            stock = item.get("stock", "-")
+            category = str(item.get("categoria") or item.get("category") or "-")
+            price = item.get("price")
+            if price is None:
+                price = item.get("pricesell")
+            stock = item.get("stock")
+            if stock is None:
+                stock = item.get("stockunits")
+            barcode = item.get("barcode") or item.get("code") or "-"
             lines.append(f"{idx}. {name}")
-            lines.append(f"   SKU: {sku} | Categoria: {category} | Precio: {price} | Stock: {stock}")
-        lines.append("Responde con el SKU exacto para continuar.")
+            lines.append(
+                f"   SKU/Ref: {sku} | Codigo: {barcode} | Categoria: {category} | Precio: {price if price is not None else '-'} | Stock: {stock if stock is not None else '-'}"
+            )
+        lines.append("Responde con el SKU/Referencia o Codigo exacto para continuar.")
         return "\n".join(lines)
 
     def _heuristic_route(self, text: str) -> RouterDecision | None:
