@@ -2,7 +2,7 @@ import io
 import logging
 import os
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from .authz import AuthzService
@@ -23,9 +23,175 @@ class TelegramHandlers:
         self.max_audio_mb = int(os.getenv("AUDIO_MAX_MB", "20"))
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.effective_message.reply_text(
-            "Asistente activo. Usa /link <token> si no estas autorizado. Comandos: /prefs /forget /privacy"
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Precio", callback_data="menu:precio")],
+                [InlineKeyboardButton("Stock", callback_data="menu:stock")],
+                [InlineKeyboardButton("Buscar", callback_data="menu:buscar")],
+                [InlineKeyboardButton("Ayuda", callback_data="menu:ayuda")],
+            ]
         )
+        await update.effective_message.reply_text(
+            "Asistente activo. Usa /link <token> si no estas autorizado.",
+            reply_markup=kb,
+        )
+
+    async def ayuda(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Precio", callback_data="menu:precio")],
+                [InlineKeyboardButton("Stock", callback_data="menu:stock")],
+                [InlineKeyboardButton("Buscar", callback_data="menu:buscar")],
+            ]
+        )
+        await update.effective_message.reply_text(
+            "Comandos:\n/precio <sku|codigo>\n/stock <sku|codigo>\n/buscar <texto>\n/ayuda\n"
+            "Debug audio: /prefs debug_audio_routing=true (o false)",
+            reply_markup=kb,
+        )
+
+    async def precio(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if not msg or not user or not chat:
+            return
+        self.orchestrator.memory.upsert_user(user.id, chat.id, chat.type)
+        if not self.authz.check_allowed(user.id, chat.id):
+            await msg.reply_text("No autorizado. Usa /link <SHARE_TOKEN>.")
+            return
+        if not self.rate.allow(str(user.id)):
+            await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
+            return
+        query = " ".join(context.args).strip()
+        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/precio {query}")
+        for chunk in paginate_telegram(answer):
+            await msg.reply_text(chunk)
+
+    async def stock(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if not msg or not user or not chat:
+            return
+        self.orchestrator.memory.upsert_user(user.id, chat.id, chat.type)
+        if not self.authz.check_allowed(user.id, chat.id):
+            await msg.reply_text("No autorizado. Usa /link <SHARE_TOKEN>.")
+            return
+        if not self.rate.allow(str(user.id)):
+            await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
+            return
+        query = " ".join(context.args).strip()
+        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/stock {query}")
+        for chunk in paginate_telegram(answer):
+            await msg.reply_text(chunk)
+
+    async def buscar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if not msg or not user or not chat:
+            return
+        self.orchestrator.memory.upsert_user(user.id, chat.id, chat.type)
+        if not self.authz.check_allowed(user.id, chat.id):
+            await msg.reply_text("No autorizado. Usa /link <SHARE_TOKEN>.")
+            return
+        if not self.rate.allow(str(user.id)):
+            await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
+            return
+        query = " ".join(context.args).strip()
+        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/buscar {query}")
+        for chunk in paginate_telegram(answer):
+            await msg.reply_text(chunk)
+
+    async def on_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if not query:
+            return
+        await query.answer()
+        data = query.data or ""
+        if data == "menu:precio":
+            await query.message.reply_text("Envía: /precio <sku|codigo>")
+            return
+        if data == "menu:stock":
+            await query.message.reply_text("Envía: /stock <sku|codigo>")
+            return
+        if data == "menu:buscar":
+            await query.message.reply_text("Envía: /buscar <texto>")
+            return
+        if data == "menu:ayuda":
+            await query.message.reply_text(
+                "Comandos:\n/precio <sku|codigo>\n/stock <sku|codigo>\n/buscar <texto>\n/ayuda"
+            )
+            return
+        await query.message.reply_text("Usa /ayuda para ver comandos.")
+
+    async def on_detail_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if not query or not query.message:
+            return
+        user = query.from_user
+        chat = query.message.chat
+        if not user or not chat:
+            return
+        await query.answer()
+        if not self.authz.check_allowed(user.id, chat.id):
+            await query.message.reply_text("No autorizado. Usa /link <SHARE_TOKEN>.")
+            return
+        if not self.rate.allow(str(user.id)):
+            await query.message.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
+            return
+        data = query.data or ""
+        ident = data.split("detail:", 1)[-1].strip()
+        if not ident:
+            await query.message.reply_text("No pude identificar el producto. Intenta de nuevo.")
+            return
+        signals = TelegramSignals(context=context, chat_id=chat.id)
+        status_msg = await query.message.reply_text("Consultando detalle...")
+        try:
+            async with signals.typing():
+                answer, _ = await self.orchestrator.process_text_with_media(
+                    user.id, chat.id, chat.type, f"/buscar {ident}"
+                )
+            for chunk in paginate_telegram(answer or "No pude generar respuesta."):
+                await query.message.reply_text(chunk)
+        finally:
+            try:
+                await status_msg.delete()
+            except Exception:
+                logger.debug("status_delete_error", exc_info=True)
+
+    async def on_more_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if not query or not query.message:
+            return
+        user = query.from_user
+        chat = query.message.chat
+        if not user or not chat:
+            return
+        await query.answer()
+        if not self.authz.check_allowed(user.id, chat.id):
+            await query.message.reply_text("No autorizado. Usa /link <SHARE_TOKEN>.")
+            return
+        options = self.orchestrator.advance_pending_options_page(user.id, chat.id)
+        if not options:
+            await query.message.reply_text("No hay más resultados para mostrar.")
+            return
+        await query.message.reply_text(
+            "Más resultados:",
+            reply_markup=self._build_options_keyboard(user.id, chat.id, options),
+        )
+
+    def _build_options_keyboard(self, user_id: int, chat_id: int, options: list[dict[str, str]]) -> InlineKeyboardMarkup:
+        keyboard: list[list[InlineKeyboardButton]] = []
+        for i, opt in enumerate(options, start=1):
+            label = f"{i}. {opt['name'][:28]}"
+            if opt.get("price"):
+                label = f"{label} ({opt['price']})"
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"detail:{opt['id'][:40]}")])
+        if self.orchestrator.pending_options_has_more(user_id, chat_id):
+            keyboard.append([InlineKeyboardButton("Buscar más", callback_data="more:next")])
+        return InlineKeyboardMarkup(keyboard)
 
     async def link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -133,6 +299,11 @@ class TelegramHandlers:
                     )
             else:
                 text = msg.text or ""
+                uses_llm = self.orchestrator.likely_uses_llm_for_text(text)
+                if uses_llm:
+                    status_msg = await msg.reply_text("Analizando con IA...")
+                else:
+                    status_msg = await msg.reply_text("Buscando en inventario...")
                 async with signals.typing():
                     answer, chart_png = await self.orchestrator.process_text_with_media(
                         user.id,
@@ -150,9 +321,20 @@ class TelegramHandlers:
                 except Exception:
                     logger.debug("status_delete_error", exc_info=True)
 
+        options = self.orchestrator.get_pending_options(user.id, chat.id)
+        if options and answer:
+            normalized = answer.lower()
+            if "coincidencias" in normalized:
+                answer = f"Encontré {len(options)} opciones."
         for chunk in paginate_telegram(answer or "No pude generar respuesta."):
             await msg.reply_text(chunk)
+        if options:
+            await msg.reply_text(
+                "Selecciona un producto:",
+                reply_markup=self._build_options_keyboard(user.id, chat.id, options),
+            )
         if msg.text and chart_png:
             bio = io.BytesIO(chart_png)
             bio.name = "reporte_ventas.png"
-            await context.bot.send_photo(chat_id=chat.id, photo=bio, caption="Grafico PNG del reporte")
+            async with signals.upload_photo():
+                await context.bot.send_photo(chat_id=chat.id, photo=bio, caption="Grafico PNG del reporte")
