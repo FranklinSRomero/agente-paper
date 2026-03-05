@@ -1,3 +1,6 @@
+import os
+import re
+
 from .mysql_client import MySQLClient
 
 
@@ -51,6 +54,60 @@ class ProductSearch:
             if not bucket["stock_col"] and any(k in cl for k in ["stock", "qty", "quantity", "invent"]):
                 bucket["stock_col"] = c
                 bucket["score"] += 1
+        # Prefer explicit table when integrating existing DB dumps.
+        preferred_table = os.getenv("MCP_PRODUCT_TABLE", "").strip()
+        if preferred_table and preferred_table in grouped:
+            mapping = grouped[preferred_table]
+            columns_sql = (
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = :table "
+                "LIMIT 200"
+            )
+            col_rows = self.db.query(columns_sql, {"table": preferred_table})
+            cols = {str(next(iter(r.values()))).lower() for r in col_rows if r}
+
+            def pick(*candidates: str) -> str | None:
+                for cand in candidates:
+                    if cand.lower() in cols:
+                        return cand
+                return None
+
+            mapping["sku_col"] = mapping["sku_col"] or pick("sku", "reference", "code", "id")
+            mapping["barcode_col"] = mapping["barcode_col"] or pick("barcode", "ean", "upc", "gtin", "code", "reference")
+            mapping["name_col"] = mapping["name_col"] or pick("product_name", "name", "nombre", "product")
+            mapping["category_col"] = mapping["category_col"] or pick("categoria", "category", "taxcat")
+            mapping["price_col"] = mapping["price_col"] or pick("pricesell", "price", "unit_price", "pricebuy")
+            mapping["stock_col"] = mapping["stock_col"] or pick("stock", "stockunits", "qty", "quantity", "invent")
+            return mapping
+
+        # Improve selection for common POS schemas where product codes are "reference"/"code".
+        for bucket in grouped.values():
+            table_l = str(bucket["table"]).lower()
+            if table_l == "products":
+                if not bucket["sku_col"]:
+                    bucket["sku_col"] = "reference"
+                    bucket["score"] += 2
+                if not bucket["barcode_col"]:
+                    bucket["barcode_col"] = "code"
+                    bucket["score"] += 2
+                if not bucket["name_col"]:
+                    bucket["name_col"] = "name"
+                    bucket["score"] += 1
+                if not bucket["category_col"]:
+                    bucket["category_col"] = "category"
+                    bucket["score"] += 1
+                if not bucket["price_col"]:
+                    bucket["price_col"] = "pricesell"
+                    bucket["score"] += 1
+                if not bucket["stock_col"]:
+                    bucket["stock_col"] = "stockunits"
+                    bucket["score"] += 1
+                # Bias to choose the real imported catalog over tiny demo tables.
+                bucket["score"] += 4
+            if table_l == "products_catalog":
+                # Keep available but with lower priority when richer schemas exist.
+                bucket["score"] -= 2
+
         ranked = sorted(grouped.values(), key=lambda x: x["score"], reverse=True)
         if not ranked or ranked[0]["score"] < 2:
             raise ValueError("No se encontro tabla candidata de productos por introspeccion")
@@ -74,35 +131,70 @@ class ProductSearch:
         name_col = mapping["name_col"] or sku_col
         category_col = mapping["category_col"] or name_col
         price_col = mapping["price_col"]
+        table_l = str(table).lower()
+        base_alias = "p"
+        from_clause = f"FROM `{table}` {base_alias}"
+        select_clause = f"SELECT {base_alias}.*"
+
+        if table_l == "products":
+            # For legacy POS schema, expose human-readable category names.
+            from_clause += f" LEFT JOIN `categories` c ON c.id = {base_alias}.`{category_col}`"
+            select_clause += ", c.name AS category_name"
+
+        text_columns = [
+            f"{base_alias}.`{name_col}`",
+            f"{base_alias}.`{sku_col}`",
+            f"{base_alias}.`{barcode_col}`",
+            f"{base_alias}.`{category_col}`",
+        ]
+        if table_l == "products":
+            text_columns.append("c.name")
+
         sql = (
-            f"SELECT * FROM `{table}` "
-            f"WHERE (:sku IS NULL OR `{sku_col}` = :sku) "
-            f"AND (:barcode IS NULL OR `{barcode_col}` = :barcode) "
-            f"AND (:categoria IS NULL OR `{category_col}` = :categoria) "
-            f"AND (:texto IS NULL OR ("
-            f"`{name_col}` LIKE CONCAT('%', :texto, '%') "
-            f"OR `{sku_col}` LIKE CONCAT('%', :texto, '%') "
-            f"OR `{barcode_col}` LIKE CONCAT('%', :texto, '%')"
-            f")) "
+            f"{select_clause} {from_clause} "
+            f"WHERE (:sku IS NULL OR {base_alias}.`{sku_col}` = :sku) "
+            f"AND (:barcode IS NULL OR {base_alias}.`{barcode_col}` = :barcode) "
+            f"AND (:categoria IS NULL OR {base_alias}.`{category_col}` = :categoria"
         )
+        if table_l == "products":
+            sql += " OR c.name = :categoria"
+        sql += ") "
+        # Global text search:
+        # 1) phrase-like match over key columns
+        # 2) tokenized match (all tokens must appear in at least one searchable column)
+        sql += "AND (:texto IS NULL OR ("
+        phrase_like = " OR ".join(f"{col} LIKE CONCAT('%', :texto, '%')" for col in text_columns)
+        sql += f"({phrase_like})"
+        params_extra: dict[str, str] = {}
+        text_tokens = []
+        if texto:
+            text_tokens = [tok for tok in re.split(r"\s+", str(texto).strip()) if tok][:6]
+        if text_tokens:
+            token_groups = []
+            for i, _ in enumerate(text_tokens):
+                token_key = f"texto_tok_{i}"
+                params_extra[token_key] = text_tokens[i]
+                token_like = " OR ".join(f"{col} LIKE CONCAT('%', :{token_key}, '%')" for col in text_columns)
+                token_groups.append(f"({token_like})")
+            sql += " OR (" + " AND ".join(token_groups) + ")"
+        sql += ")) "
         if price_col:
             sql += (
-                f"AND (:price_min IS NULL OR `{price_col}` >= :price_min) "
-                f"AND (:price_max IS NULL OR `{price_col}` <= :price_max) "
+                f"AND (:price_min IS NULL OR {base_alias}.`{price_col}` >= :price_min) "
+                f"AND (:price_max IS NULL OR {base_alias}.`{price_col}` <= :price_max) "
             )
         sql += "LIMIT :limit"
-        rows = self.db.query(
-            sql,
-            {
-                "texto": texto,
-                "sku": sku,
-                "barcode": barcode,
-                "categoria": categoria,
-                "price_min": price_min,
-                "price_max": price_max,
-                "limit": limit,
-            },
-        )
+        params = {
+            "texto": texto,
+            "sku": sku,
+            "barcode": barcode,
+            "categoria": categoria,
+            "price_min": price_min,
+            "price_max": price_max,
+            "limit": limit,
+        }
+        params.update(params_extra)
+        rows = self.db.query(sql, params)
         return {"count": len(rows), "items": rows}
 
     def stock_alerts(self, threshold_mode: str = "low_stock", limit: int = 20) -> dict:

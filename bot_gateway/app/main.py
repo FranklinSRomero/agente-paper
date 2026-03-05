@@ -2,12 +2,10 @@ import asyncio
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI
 
 from .authz import AuthzService
 from .channels.telegram_adapter import TelegramChannelAdapter
-from .channels.whatsapp_adapter import WhatsAppCloudAdapter
 from .logging_conf import setup_logging
 from .memory.store import MemoryStore
 from .orchestrator import Orchestrator
@@ -23,7 +21,6 @@ memory = MemoryStore(
 authz = AuthzService(memory)
 orchestrator = Orchestrator(memory)
 handlers = TelegramHandlers(authz, orchestrator)
-whatsapp_channel = WhatsAppCloudAdapter(authz, orchestrator)
 
 telegram_channel: TelegramChannelAdapter | None = None
 
@@ -47,17 +44,11 @@ def _validate_startup_config() -> None:
     if not (has_single or has_multi):
         missing.append("GEMINI_API_KEY (or GEMINI_API_KEYS)")
 
-    active_channels = 0
     if _telegram_enabled():
-        active_channels += 1
         if not _get_telegram_token():
             missing.append("TELEGRAM_BOT_TOKEN (or TELEGRAM_BOT_API / telegram_bot_api)")
-    if whatsapp_channel.enabled:
-        active_channels += 1
-        if not whatsapp_channel.is_configured():
-            missing.append("WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_ACCESS_TOKEN + WHATSAPP_VERIFY_TOKEN")
-    if active_channels == 0:
-        missing.append("Enable at least one channel (BOT_ENABLE_TELEGRAM or BOT_ENABLE_WHATSAPP)")
+    else:
+        missing.append("BOT_ENABLE_TELEGRAM=true")
 
     if missing:
         raise RuntimeError("Missing required startup configuration: " + ", ".join(missing))
@@ -94,20 +85,3 @@ async def on_shutdown() -> None:
 @api.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
-
-
-@api.get("/webhooks/whatsapp", response_class=PlainTextResponse)
-async def whatsapp_verify(
-    hub_mode: str | None = Query(default=None, alias="hub.mode"),
-    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
-    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
-) -> str:
-    challenge = whatsapp_channel.verify_webhook(hub_mode, hub_verify_token, hub_challenge)
-    if not challenge:
-        raise HTTPException(status_code=403, detail="webhook verification failed")
-    return challenge
-
-
-@api.post("/webhooks/whatsapp")
-async def whatsapp_webhook(payload: dict) -> dict:
-    return await whatsapp_channel.handle_webhook(payload)

@@ -97,7 +97,7 @@ SELECT
   END AS concepto,
   CASE mod_seed % 3
     WHEN 0 THEN 'tienda_fisica'
-    WHEN 1 THEN 'whatsapp'
+    WHEN 1 THEN 'telegram'
     ELSE 'domicilio'
   END AS sales_channel,
   CASE

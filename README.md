@@ -2,7 +2,6 @@
 
 Asistente de Telegram autohospedado con:
 - Gemini (Developer API) para enrutado estructurado + respuesta.
-- Integracion oficial de WhatsApp Cloud API (webhook + Graph API).
 - Memoria global persistente por `telegram_user_id`.
 - Aislamiento multi-tenant y politica anti-fuga en grupos.
 - MCP server para MySQL read-only + introspeccion + busqueda.
@@ -25,7 +24,6 @@ Asistente de Telegram autohospedado con:
   - Cliente MCP dedicado para conectar con tools de DB/POS (read-only).
 - `app/channels/`:
   - `telegram_adapter.py` (activo): entrada/salida Telegram y registro de handlers.
-  - `whatsapp_adapter.py` (activo): webhook oficial WhatsApp Cloud + Graph API.
   - `discord_adapter.py` (placeholder): contrato para eventos Discord.
   - `telegram_signals.py`: manejo de estados de plataforma (typing) para operaciones largas.
 - `app/tools/`:
@@ -63,29 +61,6 @@ Nota de entorno: si ejecutas desde el host sin binario `docker` (por ejemplo, fu
 
 ## Canales de entrada
 - Telegram (polling): habilitado por `BOT_ENABLE_TELEGRAM=true`.
-- WhatsApp Cloud API (webhook): habilitar con `BOT_ENABLE_WHATSAPP=true`.
-
-### WhatsApp Cloud API
-Configura en `.env`:
-- `WHATSAPP_PHONE_NUMBER_ID`
-- `WHATSAPP_ACCESS_TOKEN`
-- `WHATSAPP_VERIFY_TOKEN`
-- opcionales: `WHATSAPP_GRAPH_VERSION` (default recomendado: `v24.0`), `WHATSAPP_TYPING_BEST_EFFORT`
-
-Webhook endpoints:
-- Verificacion (Meta): `GET /webhooks/whatsapp`
-- Eventos: `POST /webhooks/whatsapp`
-
-Notas:
-- El bot marca mensajes como leidos y hace best-effort de estado durante procesamiento largo.
-- Soporta texto, imagen y audio (transcripcion + respuesta).
-- Si Meta depreca la version configurada, ajusta `WHATSAPP_GRAPH_VERSION` segun la documentacion oficial:
-  - https://developers.facebook.com/docs/graph-api/changelog/
-  - https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
-- Para exponer webhook localmente se puede usar:
-```bash
-~/.local/bin/cloudflared tunnel --url http://localhost:8081
-```
 
 ## Configuracion MySQL
 ### Opcion A: MySQL en compose
@@ -93,6 +68,17 @@ Notas:
 - Inicializa esquema `products` con tabla `products_catalog` y datos semilla.
 - Crea usuario readonly con `ops/scripts/init_mysql_readonly.sql`.
 - Ajustar `.env` (`MYSQL_HOST=mysql`, etc.).
+
+#### Importar un mysqldump local
+1. Copia tu dump a `data/` (ej: `data/mi_backup.sql` o `data/mi_backup.sql.gz`).
+2. Importa automaticamente:
+```bash
+make import-dump DUMP_FILE=data/mi_backup.sql
+```
+Si hay un solo dump en `data/`, puedes omitir `DUMP_FILE`:
+```bash
+make import-dump
+```
 
 ### Opcion B: MySQL externo (host/LAN)
 - No usar profile mysql.
@@ -102,6 +88,10 @@ Notas:
   - `MYSQL_USER=<readonly_user>`
   - `MYSQL_PASSWORD=<readonly_password>`
   - `MYSQL_DATABASE=<db>`
+
+Cuando cargues un dump con catalogo real (por ejemplo tabla `products`), fija:
+- `MCP_PRODUCT_TABLE=products`
+para que el buscador no use la tabla semilla `products_catalog`.
 
 ## Comandos Telegram
 - `/start` estado basico.

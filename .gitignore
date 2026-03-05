@@ -9,6 +9,9 @@ __pycache__/
 .venv/
 venv/
 data/memory.db
+data/*.sql
+data/*.dump
+data/*.sql.gz
 .agents/
 .agent/
 .DS_Store

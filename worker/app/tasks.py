@@ -7,7 +7,8 @@ import pytesseract
 from pyzbar.pyzbar import decode as zbar_decode
 
 
-GTIN_RE = re.compile(r"\b\d{8,14}\b")
+GTIN_RE = re.compile(r"(?<!\d)\d{8,14}(?!\d)")
+GTIN_FUZZY_RE = re.compile(r"(?:\d[\s\-]*){8,14}")
 SKU_RE = re.compile(r"\b[A-Z0-9\-_]{4,24}\b", re.IGNORECASE)
 BARCODE_TYPES = {
     "EAN13",
@@ -85,22 +86,29 @@ def _decode_barcode_or_qr(img) -> tuple[str | None, str | None]:
 
 
 def _ocr(gray_img) -> str:
-    h, w = gray_img.shape[:2]
-    roi = gray_img[h // 2 :, :] if h >= 100 else gray_img
-    roi = cv2.resize(roi, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-    blur = cv2.GaussianBlur(roi, (3, 3), 0)
-    _, th = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
+    h, _ = gray_img.shape[:2]
+    rois = [gray_img]
+    if h >= 120:
+        rois.append(gray_img[h // 3 : (h * 4) // 5, :])  # center band
+        rois.append(gray_img[h // 2 :, :])  # lower half
     configs = [
         "--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",
         "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",
+        "--psm 7 -c tessedit_char_whitelist=0123456789",
+        "--psm 8 -c tessedit_char_whitelist=0123456789",
         "--psm 11",
     ]
     parts = []
-    for cfg in configs:
-        txt = pytesseract.image_to_string(th, config=cfg)
-        if txt:
-            parts.append(" ".join(txt.split()))
+    for roi in rois:
+        roi = cv2.resize(roi, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        blur = cv2.GaussianBlur(roi, (3, 3), 0)
+        _, th = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants = [th, cv2.bitwise_not(th)]
+        for cand in variants:
+            for cfg in configs:
+                txt = pytesseract.image_to_string(cand, config=cfg)
+                if txt:
+                    parts.append(" ".join(txt.split()))
     return " ".join(parts).strip()
 
 
@@ -115,6 +123,15 @@ def _normalize(barcode: str | None, qr_text: str | None, ocr_text: str | None):
     gtins = GTIN_RE.findall(blob)
     if gtins:
         return gtins[0], []
+    compact_blob = re.sub(r"[^0-9A-Z\-_]", "", blob)
+    compact_gtins = GTIN_RE.findall(compact_blob)
+    if compact_gtins:
+        return compact_gtins[0], []
+    fuzzy = GTIN_FUZZY_RE.findall(blob)
+    for candidate in fuzzy:
+        digits = re.sub(r"\D", "", candidate)
+        if 8 <= len(digits) <= 14:
+            return digits, []
 
     skus = []
     seen = set()

@@ -4,7 +4,7 @@
 Operational instructions for future CLI/Codex agents working in this repository.
 
 ## Project Snapshot
-- Multi-channel assistant (Telegram + WhatsApp Cloud API) with memory, Gemini routing/response, MCP-backed MySQL read-only tools, vision worker, and audio transcription.
+- Telegram assistant with memory, Gemini routing/response, MCP-backed MySQL read-only tools, vision worker, and audio transcription.
 - Main services:
   - `bot_gateway`
   - `mcp_server`
@@ -19,22 +19,15 @@ Operational instructions for future CLI/Codex agents working in this repository.
 4. Environment model should be `GEMINI_MODEL=gemini-2.5-flash-lite`.
 5. Channel flags:
    - `BOT_ENABLE_TELEGRAM=true|false`
-   - `BOT_ENABLE_WHATSAPP=true|false`
-6. WhatsApp webhook endpoints:
-   - `GET /webhooks/whatsapp` (Meta verify)
-   - `POST /webhooks/whatsapp` (events)
-7. `cloudflared` is installed locally at `~/.local/bin/cloudflared` (version `2026.2.0`).
-8. WhatsApp Graph API default in this repo is `WHATSAPP_GRAPH_VERSION=v24.0`; if Meta deprecates it, update using official docs:
-   - https://developers.facebook.com/docs/graph-api/changelog/
-   - https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
+6. `cloudflared` is installed locally at `~/.local/bin/cloudflared` (version `2026.2.0`).
 
 ## First Commands to Run
 1. `make up-mysql`
 2. `docker-compose ps`
 3. `curl -fsS http://localhost:8081/health`
 4. `curl -fsS http://localhost:7000/health`
-5. If exposing webhook from local machine:
-   - `~/.local/bin/cloudflared tunnel --url http://localhost:8081`
+5. If loading a local MySQL backup dump:
+   - `make import-dump DUMP_FILE=data/<archivo>.sql`
 
 ## Environment Constraint Noted
 - Previous note (2026-02-20): `make up-mysql` failed in a host context where the `docker` binary was missing.
@@ -65,12 +58,7 @@ Operational instructions for future CLI/Codex agents working in this repository.
 4. DB auth/runtime errors from MCP:
 - Ensure `mcp_server` image includes `cryptography` dependency (`mcp_server/pyproject.toml`).
 
-5. WhatsApp webhook verify/events not working:
-- Verify `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`.
-- Verify Meta callback URL points to `/webhooks/whatsapp`.
-- For local testing, tunnel with `cloudflared`.
-
-6. MCP intermittency/timeouts:
+5. MCP intermittency/timeouts:
 - Tune:
   - `MCP_TOOL_TIMEOUT_SECONDS`
   - `MCP_TOOL_MAX_RETRIES`
@@ -86,7 +74,6 @@ Operational instructions for future CLI/Codex agents working in this repository.
 - Backward compatibility alias: `bot_gateway/app/orchestrator.py`
 - Gemini wrapper: `bot_gateway/app/llm_gemini.py`
 - Channel adapters: `bot_gateway/app/channels/`
-- WhatsApp adapter: `bot_gateway/app/channels/whatsapp_adapter.py`
 - MCP API/tool server: `mcp_server/app/server.py`
 - Product search logic: `mcp_server/app/product_search.py`
 - MCP client (bot side): `bot_gateway/app/core/mcp_client.py`
@@ -97,7 +84,7 @@ Operational instructions for future CLI/Codex agents working in this repository.
 1. Service containers are up and healthy.
 2. Health endpoints return OK.
 3. Direct MCP product lookup works by SKU and barcode.
-4. Telegram and/or WhatsApp return concrete price/SKU answer for seeded products.
+4. Telegram returns concrete price/SKU answer for seeded products.
 5. Media flows (image/audio) work in at least one enabled channel.
 
 ## Git Workflow Rule

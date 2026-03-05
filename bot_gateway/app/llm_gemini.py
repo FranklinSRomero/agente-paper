@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 from google import genai
@@ -23,6 +24,8 @@ class GeminiService:
         self.clients = [genai.Client(api_key=k) for k in self.api_keys]
         self._next_client_idx = 0
         self._lock = threading.Lock()
+        self.quota_cooldown_seconds = int(os.getenv("GEMINI_QUOTA_COOLDOWN_SECONDS", "300"))
+        self._degraded_until = 0.0
 
     def _load_api_keys(self) -> list[str]:
         raw_multi = os.getenv("GEMINI_API_KEYS", "").strip()
@@ -72,7 +75,25 @@ class GeminiService:
             raise last_exc
         raise RuntimeError("no_gemini_clients_configured")
 
+    def _set_degraded(self) -> None:
+        self._degraded_until = time.monotonic() + max(self.quota_cooldown_seconds, 30)
+        logger.warning("gemini_temporarily_degraded_for_seconds=%s", self.quota_cooldown_seconds)
+
+    def is_temporarily_unavailable(self) -> bool:
+        return time.monotonic() < self._degraded_until
+
     def route(self, user_text: str) -> RouterDecision:
+        if self.is_temporarily_unavailable():
+            return RouterDecision(
+                intent="ayuda",
+                needs_db=False,
+                needs_vision=False,
+                confidence=0.0,
+                ask_clarification=(
+                    "La IA esta temporalmente no disponible por cuota. "
+                    "Usa /precio <sku>, /stock <sku> o /buscar <texto>."
+                ),
+            )
         if not self.clients:
             return RouterDecision(
                 intent="ayuda",
@@ -105,6 +126,7 @@ class GeminiService:
         except genai_errors.ClientError as exc:
             logger.warning("router_client_error: %s", exc)
             if self._is_quota_error(exc):
+                self._set_degraded()
                 return RouterDecision(
                     intent="ayuda",
                     needs_db=False,
@@ -133,6 +155,8 @@ class GeminiService:
             )
 
     def respond(self, system_prompt: str, user_text: str, context: dict[str, Any]) -> str:
+        if self.is_temporarily_unavailable():
+            return "La IA esta temporalmente no disponible. Usa /precio, /stock o /buscar para consultas POS."
         if not self.clients:
             return "Configura GEMINI_API_KEY o GEMINI_API_KEYS para respuestas del modelo."
 
@@ -154,6 +178,7 @@ class GeminiService:
         except genai_errors.ClientError as exc:
             logger.warning("respond_client_error: %s", exc)
             if self._is_quota_error(exc):
+                self._set_degraded()
                 return (
                     "Se agotó la cuota de Gemini por ahora. "
                     "Intenta más tarde o agrega API keys/proyectos con cuota activa en GEMINI_API_KEYS."
@@ -164,6 +189,8 @@ class GeminiService:
             return "No pude generar respuesta en este momento. Intenta nuevamente."
 
     def summarize(self, prior_summary: str, latest_user_text: str, latest_bot_text: str) -> str:
+        if self.is_temporarily_unavailable():
+            return prior_summary[:2000]
         if not self.clients:
             raw = f"{prior_summary} | U:{latest_user_text[:120]} | B:{latest_bot_text[:120]}"
             return raw[-1000:]
@@ -201,6 +228,8 @@ class GeminiService:
         return await asyncio.to_thread(self.summarize, prior_summary, latest_user_text, latest_bot_text)
 
     def transcribe_audio(self, audio_bytes: bytes, mime_type: str, hint_text: str | None = None) -> str:
+        if self.is_temporarily_unavailable():
+            return ""
         if not self.clients:
             return ""
         b64 = base64.b64encode(audio_bytes).decode("ascii")
@@ -227,6 +256,8 @@ class GeminiService:
             return (response.text or "").strip()
         except Exception as exc:
             logger.warning("transcribe_audio_error: %s", exc)
+            if self._is_quota_error(exc):
+                self._set_degraded()
             return ""
 
     async def atranscribe_audio(self, audio_bytes: bytes, mime_type: str, hint_text: str | None = None) -> str:

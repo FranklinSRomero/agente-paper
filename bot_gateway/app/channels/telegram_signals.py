@@ -26,8 +26,8 @@ class TelegramSignals:
             logger.debug("chat_action_error", exc_info=True)
 
     @asynccontextmanager
-    async def typing(self) -> AsyncIterator[None]:
-        self._task = asyncio.create_task(self._keep_chat_action(ChatAction.TYPING))
+    async def _action(self, action: str) -> AsyncIterator[None]:
+        self._task = asyncio.create_task(self._keep_chat_action(action))
         try:
             yield
         finally:
@@ -38,3 +38,18 @@ class TelegramSignals:
                 except asyncio.CancelledError:
                     pass
                 self._task = None
+
+    @asynccontextmanager
+    async def typing(self) -> AsyncIterator[None]:
+        async with self._action(ChatAction.TYPING):
+            yield
+
+    @asynccontextmanager
+    async def upload_photo(self) -> AsyncIterator[None]:
+        async with self._action(ChatAction.UPLOAD_PHOTO):
+            yield
+
+    @asynccontextmanager
+    async def upload_document(self) -> AsyncIterator[None]:
+        async with self._action(ChatAction.UPLOAD_DOCUMENT):
+            yield
