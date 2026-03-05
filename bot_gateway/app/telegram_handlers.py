@@ -64,9 +64,19 @@ class TelegramHandlers:
             await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
             return
         query = " ".join(context.args).strip()
-        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/precio {query}")
-        for chunk in paginate_telegram(answer):
-            await msg.reply_text(chunk)
+        signals = TelegramSignals(context=context, chat_id=chat.id)
+        status_msg = await msg.reply_text("Consultando precio...")
+        try:
+            async with signals.typing():
+                answer, _ = await self.orchestrator.process_text_with_media(
+                    user.id, chat.id, chat.type, f"/precio {query}"
+                )
+            await self._reply_with_answer_and_options(msg, user.id, chat.id, answer)
+        finally:
+            try:
+                await status_msg.delete()
+            except Exception:
+                logger.debug("status_delete_error", exc_info=True)
 
     async def stock(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = update.effective_message
@@ -82,9 +92,19 @@ class TelegramHandlers:
             await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
             return
         query = " ".join(context.args).strip()
-        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/stock {query}")
-        for chunk in paginate_telegram(answer):
-            await msg.reply_text(chunk)
+        signals = TelegramSignals(context=context, chat_id=chat.id)
+        status_msg = await msg.reply_text("Consultando stock...")
+        try:
+            async with signals.typing():
+                answer, _ = await self.orchestrator.process_text_with_media(
+                    user.id, chat.id, chat.type, f"/stock {query}"
+                )
+            await self._reply_with_answer_and_options(msg, user.id, chat.id, answer)
+        finally:
+            try:
+                await status_msg.delete()
+            except Exception:
+                logger.debug("status_delete_error", exc_info=True)
 
     async def buscar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = update.effective_message
@@ -100,18 +120,19 @@ class TelegramHandlers:
             await msg.reply_text("Rate limit alcanzado. Intenta de nuevo en un minuto.")
             return
         query = " ".join(context.args).strip()
-        answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/buscar {query}")
-        options = self.orchestrator.get_pending_options(user.id, chat.id)
-        total = self.orchestrator.pending_options_total(user.id, chat.id)
-        if options:
-            answer = f"Encontré {total} opciones."
-        for chunk in paginate_telegram(answer or "No pude generar respuesta."):
-            await msg.reply_text(chunk)
-        if options:
-            await msg.reply_text(
-                "Selecciona un producto:",
-                reply_markup=self._build_options_keyboard(user.id, chat.id, options),
-            )
+        signals = TelegramSignals(context=context, chat_id=chat.id)
+        status_msg = await msg.reply_text("Buscando en inventario...")
+        try:
+            async with signals.typing():
+                answer, _ = await self.orchestrator.process_text_with_media(
+                    user.id, chat.id, chat.type, f"/buscar {query}"
+                )
+            await self._reply_with_answer_and_options(msg, user.id, chat.id, answer)
+        finally:
+            try:
+                await status_msg.delete()
+            except Exception:
+                logger.debug("status_delete_error", exc_info=True)
 
     async def on_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -162,8 +183,7 @@ class TelegramHandlers:
                 answer, _ = await self.orchestrator.process_text_with_media(
                     user.id, chat.id, chat.type, f"/buscar {ident}"
                 )
-            for chunk in paginate_telegram(answer or "No pude generar respuesta."):
-                await query.message.reply_text(chunk)
+            await self._reply_with_answer_and_options(query.message, user.id, chat.id, answer)
         finally:
             try:
                 await status_msg.delete()
@@ -201,6 +221,20 @@ class TelegramHandlers:
         if self.orchestrator.pending_options_has_more(user_id, chat_id):
             keyboard.append([InlineKeyboardButton("Buscar más", callback_data="more:next")])
         return InlineKeyboardMarkup(keyboard)
+
+    async def _reply_with_answer_and_options(self, msg, user_id: int, chat_id: int, answer: str | None) -> None:
+        options = self.orchestrator.get_pending_options(user_id, chat_id)
+        total = self.orchestrator.pending_options_total(user_id, chat_id)
+        text = answer or "No pude generar respuesta."
+        if options:
+            text = f"Encontré {total} opciones."
+        for chunk in paginate_telegram(text):
+            await msg.reply_text(chunk)
+        if options:
+            await msg.reply_text(
+                "Selecciona un producto:",
+                reply_markup=self._build_options_keyboard(user_id, chat_id, options),
+            )
 
     async def link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -330,17 +364,7 @@ class TelegramHandlers:
                 except Exception:
                     logger.debug("status_delete_error", exc_info=True)
 
-        options = self.orchestrator.get_pending_options(user.id, chat.id)
-        total = self.orchestrator.pending_options_total(user.id, chat.id)
-        if options:
-            answer = f"Encontré {total} opciones."
-        for chunk in paginate_telegram(answer or "No pude generar respuesta."):
-            await msg.reply_text(chunk)
-        if options:
-            await msg.reply_text(
-                "Selecciona un producto:",
-                reply_markup=self._build_options_keyboard(user.id, chat.id, options),
-            )
+        await self._reply_with_answer_and_options(msg, user.id, chat.id, answer)
         if msg.text and chart_png:
             bio = io.BytesIO(chart_png)
             bio.name = "reporte_ventas.png"
