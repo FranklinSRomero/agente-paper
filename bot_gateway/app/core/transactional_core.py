@@ -214,6 +214,13 @@ class TransactionalCore:
         size = max(self.fuzzy_top_k, 1)
         return (offset + size) < len(items)
 
+    def pending_options_total(self, user_id: int, chat_id: int) -> int:
+        data = self._pending_option_items.get((user_id, chat_id)) or {}
+        items = data.get("items") or []
+        if not isinstance(items, list):
+            return 0
+        return len(items)
+
     def advance_pending_options_page(self, user_id: int, chat_id: int) -> list[dict[str, str]]:
         data = self._pending_option_items.get((user_id, chat_id))
         if not data:

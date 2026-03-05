@@ -101,8 +101,17 @@ class TelegramHandlers:
             return
         query = " ".join(context.args).strip()
         answer, _ = await self.orchestrator.process_text_with_media(user.id, chat.id, chat.type, f"/buscar {query}")
-        for chunk in paginate_telegram(answer):
+        options = self.orchestrator.get_pending_options(user.id, chat.id)
+        total = self.orchestrator.pending_options_total(user.id, chat.id)
+        if options:
+            answer = f"Encontré {total} opciones."
+        for chunk in paginate_telegram(answer or "No pude generar respuesta."):
             await msg.reply_text(chunk)
+        if options:
+            await msg.reply_text(
+                "Selecciona un producto:",
+                reply_markup=self._build_options_keyboard(user.id, chat.id, options),
+            )
 
     async def on_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -322,10 +331,9 @@ class TelegramHandlers:
                     logger.debug("status_delete_error", exc_info=True)
 
         options = self.orchestrator.get_pending_options(user.id, chat.id)
-        if options and answer:
-            normalized = answer.lower()
-            if "coincidencias" in normalized:
-                answer = f"Encontré {len(options)} opciones."
+        total = self.orchestrator.pending_options_total(user.id, chat.id)
+        if options:
+            answer = f"Encontré {total} opciones."
         for chunk in paginate_telegram(answer or "No pude generar respuesta."):
             await msg.reply_text(chunk)
         if options:
